@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  source-kafka:
+    image: confluentinc/cp-kafka:latest
+    hostname: source-kafka
+    container_name: source-kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: source-zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://source-kafka:9092,SSL://source-kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,SSL://0.0.0.0:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: source.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: key_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: source.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: required
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    volumes:
+      - ./backend/avro:/avro
+      - ./secrets/source:/etc/kafka/secrets
+    networks:
+      - network1
+
+  source-zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: source-zookeeper
+    container_name: source-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - network1
+
+  target-kafka:
+    image: confluentinc/cp-kafka:latest
+    hostname: target-kafka
+    container_name: target-kafka
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: target-zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://target-kafka:9094,SSL://target-kafka:9095
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,SSL://0.0.0.0:9095
+      KAFKA_SSL_KEYSTORE_FILENAME: target.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: key_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: target.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: required
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9094:9094"
+      - "9095:9095"
+    volumes:
+      - ./backend/avro:/avro
+      - ./secrets/target:/etc/kafka/secrets
+    networks:
+      - network3
+
+  target-zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: target-zookeeper
+    container_name: target-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2182:2181"
+    networks:
+      - network3
+
+  connector:
+    build: ./backend/connector
+    container_name: connector
+    depends_on:
+      - source-kafka
+      - target-kafka
+    volumes:
+      - ./backend/connector:/app
+      - ./backend/avro:/avro
+    networks:
+      - network1
+      - network2
+      - network3
+    env_file:
+      - .env.local
+
+  kafka-ui:
+    image: confluentinc/cp-enterprise-control-center:latest
+    container_name: kafka-ui
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: source-kafka:9092,target-kafka:9094
+      CONTROL_CENTER_KAFKA_SOURCE_CLUSTER_BOOTSTRAP_SERVERS: source-kafka:9092
+      CONTROL_CENTER_KAFKA_TARGET_CLUSTER_BOOTSTRAP_SERVERS: target-kafka:9094
+      CONTROL_CENTER_ZOOKEEPER_CONNECT: source-zookeeper:2181,target-zookeeper:2181
+    ports:
+      - "9021:9021"
+    networks:
+      - network2
+    depends_on:
+      - source-kafka
+      - target-kafka
+
+  reverse-proxy:
+    image: nginx:latest
+    container_name: reverse-proxy
+    volumes:
+      - ./backend/reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./secrets/proxy:/etc/nginx/certs
+    ports:
+      - "443:443"
+    networks:
+      - network3
+
+networks:
+  network1:
+    driver: bridge
+  network2:
+    driver: bridge
+  network3:
+    driver: bridge

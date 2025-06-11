@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "Event",
+  "namespace": "com.example.kafka",
+  "fields": [
+    { "name": "eventId", "type": "string" },
+    { "name": "timestamp", "type": "long" },
+    { "name": "payload", "type": "string" }
+  ]
+}

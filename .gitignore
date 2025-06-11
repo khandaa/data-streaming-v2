@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+
+# Docker
+**/data/
+**/logs/
+
+# Environment files
+.env
+.env.local
+.env.example
+
+# Secrets
+secrets/
+
+# Node
+node_modules/
+
+# Test
+*.coverage
+coverage/
+
+# VSCode
+.vscode/
+
+# Misc
+.DS_Store
