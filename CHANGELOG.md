@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated Docker Compose to prevent direct communication between Network 1 and Network 3
 - Added `internal: true` flag to network definitions for improved isolation
 - Updated architecture diagram to reflect new network topology
-- Moved reverse proxy to Network 2 for centralized access management
+- Moved reverse proxy to Network 3 per enhanced architecture requirements
 
 ### Security
 - Improved network isolation by removing direct connectivity between source and target networks

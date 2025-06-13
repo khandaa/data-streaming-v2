@@ -27,31 +27,30 @@ graph TD
     subgraph Network2["Network 2 - Bridge"]
         Connector["Secure Connector\n(Exactly-Once Delivery)"]
         KafkaUI["Kafka UI"]
-        ReverseProxy["Nginx Reverse Proxy\n(TLS)"]
     end
 
     subgraph Network3["Network 3 - Target (Isolated)"]
         TargetZK["Zookeeper\n(target)"]
         TargetKafka["Kafka Broker\n(target)"]
         TargetConsumer["Message Consumer"]
+        ReverseProxy["Nginx Reverse Proxy\n(TLS)"]
     end
 
     %% Connections
     SourceZK --> SourceKafka
     SourceProducer -->|"Produce Events\n(SSL/TLS)"| SourceKafka
+    
+    %% Network 2 as the exclusive bridge
     SourceKafka -->|"Read Events\n(SSL/TLS)"| Connector
     Connector -->|"Forward Events\n(SSL/TLS)"| TargetKafka
+    
     TargetZK --> TargetKafka
     TargetKafka -->|"Consume Events\n(SSL/TLS)"| TargetConsumer
     
-    %% Network Bridge Connections - Notice there are no direct connections between Network 1 and 3
-    SourceKafka -.->|"Bridge Connection"| Network2
-    Network2 -.->|"Bridge Connection"| TargetKafka
-    
-    %% UI and Monitoring
-    SourceKafka -.->|"Monitor"| KafkaUI
-    TargetKafka -.->|"Monitor"| KafkaUI
-    ReverseProxy -.->|"Secure Access"| KafkaUI
+    %% UI and Monitoring through Network 2
+    KafkaUI -->|"Monitor Source\n(SSL/TLS)"| SourceKafka
+    KafkaUI -->|"Monitor Target\n(SSL/TLS)"| TargetKafka
+    ReverseProxy -->|"Secure Access"| KafkaUI
 
     %% Styling
     classDef kafka fill:#ff9900,stroke:#333,stroke-width:2px
