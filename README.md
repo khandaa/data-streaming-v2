@@ -18,10 +18,10 @@ The system is deployed using Docker Compose with TLS authentication and a revers
 ```mermaid
 graph TD
     %% Network Boundaries
-    subgraph Network1["Network 1 - Source"]
+    subgraph Network1["Network 1 - Source (Isolated)"]
         SourceZK["Zookeeper\n(source)"]
-        SourceKafka["Kafka Broker\n(source)"]
         SourceProducer["Message Producer"]
+        SourceKafka["Kafka Broker\n(source)"]
     end
 
     subgraph Network2["Network 2 - Bridge"]
@@ -30,7 +30,7 @@ graph TD
         ReverseProxy["Nginx Reverse Proxy\n(TLS)"]
     end
 
-    subgraph Network3["Network 3 - Target"]
+    subgraph Network3["Network 3 - Target (Isolated)"]
         TargetZK["Zookeeper\n(target)"]
         TargetKafka["Kafka Broker\n(target)"]
         TargetConsumer["Message Consumer"]
@@ -44,6 +44,10 @@ graph TD
     TargetZK --> TargetKafka
     TargetKafka -->|"Consume Events\n(SSL/TLS)"| TargetConsumer
     
+    %% Network Bridge Connections - Notice there are no direct connections between Network 1 and 3
+    SourceKafka -.->|"Bridge Connection"| Network2
+    Network2 -.->|"Bridge Connection"| TargetKafka
+    
     %% UI and Monitoring
     SourceKafka -.->|"Monitor"| KafkaUI
     TargetKafka -.->|"Monitor"| KafkaUI
@@ -56,6 +60,9 @@ graph TD
     classDef ui fill:#673ab7,stroke:#333,stroke-width:2px,color:white
     classDef proxy fill:#f44336,stroke:#333,stroke-width:2px,color:white
     classDef client fill:#009688,stroke:#333,stroke-width:2px
+    classDef network1 fill:#ffebee,stroke:#c62828,stroke-width:1px
+    classDef network2 fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    classDef network3 fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
     
     class SourceKafka,TargetKafka kafka
     class SourceZK,TargetZK zookeeper
@@ -63,6 +70,9 @@ graph TD
     class KafkaUI ui
     class ReverseProxy proxy
     class SourceProducer,TargetConsumer client
+    class Network1 network1
+    class Network2 network2
+    class Network3 network3
 ```
 
 ### Flow Diagram

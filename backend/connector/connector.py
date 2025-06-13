@@ -1,183 +1,163 @@
-import os
-import time
-import logging
-from confluent_kafka import Consumer, Producer, KafkaError, KafkaException
-from confluent_kafka.admin import AdminClient, NewTopic
-import io
+#!/usr/bin/env python
 import json
-from fastavro import schemaless_writer, schemaless_reader
+import time
+import os
+import logging
+from confluent_kafka import Consumer, Producer, KafkaError
+import io
+from fastavro import schemaless_reader, schemaless_writer
 
-# Configure logging
+# Set up logging
 logging.basicConfig(
+    level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
-    level=logging.INFO
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-SOURCE_BROKER = os.getenv('KAFKA_SOURCE_BROKER', 'source-kafka:9093')
-TARGET_BROKER = os.getenv('KAFKA_TARGET_BROKER', 'target-kafka:9095')
-SOURCE_TOPIC = os.getenv('KAFKA_SOURCE_TOPIC', 'source-topic')
-TARGET_TOPIC = os.getenv('KAFKA_TARGET_TOPIC', 'target-topic')
-CONSUMER_GROUP = os.getenv('CONSUMER_GROUP', 'connector-group')
-SCHEMA_PATH = os.getenv('SCHEMA_PATH', '/avro/schema.avsc')
-
-# TLS configs for source Kafka
-SOURCE_SSL_CONFIG = {
-    'security.protocol': 'SSL',
-    'ssl.keystore.location': os.getenv('KAFKA_SSL_KEYSTORE_LOCATION'),
-    'ssl.keystore.password': os.getenv('KAFKA_SSL_KEYSTORE_PASSWORD'),
-    'ssl.key.password': os.getenv('KAFKA_SSL_KEY_PASSWORD'),
-    'ssl.truststore.location': os.getenv('KAFKA_SSL_TRUSTSTORE_LOCATION'),
-    'ssl.truststore.password': os.getenv('KAFKA_SSL_TRUSTSTORE_PASSWORD'),
-}
-
-# TLS configs for target Kafka
-TARGET_SSL_CONFIG = {
-    'security.protocol': 'SSL',
-    'ssl.keystore.location': os.getenv('KAFKA_SSL_KEYSTORE_LOCATION'),
-    'ssl.keystore.password': os.getenv('KAFKA_SSL_KEYSTORE_PASSWORD'),
-    'ssl.key.password': os.getenv('KAFKA_SSL_KEY_PASSWORD'),
-    'ssl.truststore.location': os.getenv('KAFKA_SSL_TRUSTSTORE_LOCATION'),
-    'ssl.truststore.password': os.getenv('KAFKA_SSL_TRUSTSTORE_PASSWORD'),
-}
-
 class KafkaConnector:
     def __init__(self):
-        self.running = True
-        self.load_schema()
-        self.setup_consumer()
-        self.setup_producer()
-        self.setup_target_topic()
-
-    def load_schema(self):
+        # Configuration
+        self.source_topic = os.environ.get('SOURCE_TOPIC', 'source-topic')
+        self.target_topic = os.environ.get('TARGET_TOPIC', 'target-topic')
+        self.source_bootstrap_server = os.environ.get('SOURCE_BOOTSTRAP_SERVER', 'source-kafka:9092')
+        self.target_bootstrap_server = os.environ.get('TARGET_BOOTSTRAP_SERVER', 'target-kafka:9094')
+        self.group_id = os.environ.get('GROUP_ID', 'connector-group')
+        
+        # For plaintext connections, used during development
+        self.use_plaintext = os.environ.get('USE_PLAINTEXT', 'true').lower() == 'true'
+        
+        # Load schema
         try:
-            with open(SCHEMA_PATH, 'r') as f:
+            with open('/avro/schema.avsc', 'r') as f:
                 self.schema = json.load(f)
-                logger.info(f"Loaded schema from {SCHEMA_PATH}")
+                logger.info(f"Loaded schema from /avro/schema.avsc")
         except Exception as e:
             logger.error(f"Failed to load schema: {e}")
             raise
-
+            
+        # Set up consumer and producer
+        self.setup_consumer()
+        self.setup_producer()
+    
     def setup_consumer(self):
+        """Configure and create Kafka consumer"""
+        # Consumer configuration
         consumer_conf = {
-            'bootstrap.servers': SOURCE_BROKER,
-            'group.id': CONSUMER_GROUP,
+            'bootstrap.servers': self.source_bootstrap_server,
+            'group.id': self.group_id,
             'auto.offset.reset': 'earliest',
-            'enable.auto.commit': False,
-            **SOURCE_SSL_CONFIG
+            'enable.auto.commit': False
         }
-        self.consumer = Consumer(consumer_conf)
-        self.consumer.subscribe([SOURCE_TOPIC])
-        logger.info(f"Consumer subscribed to {SOURCE_TOPIC}")
-
-    def setup_producer(self):
-        # For exactly-once semantics
-        producer_conf = {
-            'bootstrap.servers': TARGET_BROKER,
-            'transactional.id': 'connector-transaction',
-            **TARGET_SSL_CONFIG
-        }
-        self.producer = Producer(producer_conf)
-        self.producer.init_transactions()
-        logger.info("Producer initialized with transactional capabilities")
-
-    def setup_target_topic(self):
-        # Make sure target topic exists before we start
-        admin_conf = {
-            'bootstrap.servers': TARGET_BROKER,
-            **TARGET_SSL_CONFIG
-        }
-        admin = AdminClient(admin_conf)
         
-        try:
-            # Create topic if it doesn't exist
-            topics = [NewTopic(TARGET_TOPIC, num_partitions=3, replication_factor=1)]
-            admin.create_topics(topics)
-            logger.info(f"Target topic {TARGET_TOPIC} created")
-        except KafkaException as e:
-            if "already exists" in str(e):
-                logger.info(f"Topic {TARGET_TOPIC} already exists")
-            else:
-                logger.warning(f"Failed to create topic: {e}")
+        # Add SSL/TLS config if not using plaintext
+        if not self.use_plaintext:
+            consumer_conf.update({
+                'security.protocol': 'SSL',
+                'ssl.ca.location': '/etc/kafka/secrets/source-ca.pem',
+                'ssl.certificate.location': '/etc/kafka/secrets/source-client.pem',
+                'ssl.key.location': '/etc/kafka/secrets/source-client.key',
+                'ssl.key.password': 'keypass'
+            })
+            
+        self.consumer = Consumer(consumer_conf)
+        logger.info(f"Consumer configured to connect to {self.source_bootstrap_server}")
+    
+    def setup_producer(self):
+        """Configure and create Kafka producer"""
+        # Producer configuration
+        producer_conf = {
+            'bootstrap.servers': self.target_bootstrap_server,
+            'client.id': 'connector-producer'
+        }
+        
+        # Add SSL/TLS config if not using plaintext
+        if not self.use_plaintext:
+            producer_conf.update({
+                'security.protocol': 'SSL',
+                'ssl.ca.location': '/etc/kafka/secrets/target-ca.pem',
+                'ssl.certificate.location': '/etc/kafka/secrets/target-client.pem',
+                'ssl.key.location': '/etc/kafka/secrets/target-client.key',
+                'ssl.key.password': 'keypass'
+            })
+            
+        self.producer = Producer(producer_conf)
+        logger.info(f"Producer configured to connect to {self.target_bootstrap_server}")
+
+    def delivery_callback(self, err, msg):
+        """Callback invoked when message delivery succeeds or fails"""
+        if err:
+            logger.error(f'Message delivery failed: {err}')
+        else:
+            logger.info(f'Message delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}')
 
     def avro_deserialize(self, binary_data):
+        """Deserialize Avro binary data"""
         reader = io.BytesIO(binary_data)
         return schemaless_reader(reader, self.schema)
 
     def avro_serialize(self, record):
+        """Serialize using Avro"""
         buf = io.BytesIO()
         schemaless_writer(buf, self.schema, record)
         return buf.getvalue()
 
-    def delivery_report(self, err, msg):
-        if err is not None:
-            logger.error(f"Message delivery failed: {err}")
-        else:
-            logger.debug(f"Message delivered to {msg.topic()} [{msg.partition()}]")
-
-    def start(self):
+    def process_messages(self):
+        """Main processing loop to connect source topic to target topic"""
+        # Subscribe to source topic
+        self.consumer.subscribe([self.source_topic])
+        logger.info(f"Starting connector from {self.source_topic} to {self.target_topic}")
+        
         try:
-            while self.running:
+            while True:
                 msg = self.consumer.poll(1.0)
-                
                 if msg is None:
                     continue
-                
+                    
                 if msg.error():
                     if msg.error().code() == KafkaError._PARTITION_EOF:
-                        logger.debug(f"Reached end of partition {msg.partition()}")
+                        # End of partition event
+                        logger.info(f"Reached end of partition {msg.partition()}")
                     else:
-                        logger.error(f"Consumer error: {msg.error()}")
-                    continue
+                        logger.error(f"Error: {msg.error()}")
+                else:
+                    try:
+                        # Deserialize the message
+                        event = self.avro_deserialize(msg.value())
+                        logger.info(f"Received event from source topic: {event['eventId']}")
+                        
+                        # Serialize the event again
+                        avro_data = self.avro_serialize(event)
+                        
+                        # Send to target topic
+                        self.producer.produce(
+                            self.target_topic, 
+                            value=avro_data, 
+                            callback=lambda err, msg: self.delivery_callback(err, msg)
+                        )
+                        self.producer.poll(0)
+                        
+                        # Commit the offset manually
+                        self.consumer.commit(msg)
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing message: {e}")
                 
-                try:
-                    # Deserialize the message from source
-                    event = self.avro_deserialize(msg.value())
-                    logger.info(f"Processing event ID: {event.get('eventId')}")
-                    
-                    # Begin transaction for exactly-once semantics
-                    self.producer.begin_transaction()
-                    
-                    # Serialize and send the event to target
-                    serialized_event = self.avro_serialize(event)
-                    self.producer.produce(
-                        TARGET_TOPIC,
-                        key=msg.key(),
-                        value=serialized_event,
-                        callback=self.delivery_report
-                    )
-                    
-                    # Commit the offset as part of the transaction for exactly-once semantics
-                    self.producer.send_offsets_to_transaction(
-                        self.consumer.position([msg.partition()]),
-                        self.consumer.consumer_group_metadata()
-                    )
-                    
-                    # Commit the transaction
-                    self.producer.commit_transaction()
-                    logger.info(f"Transaction committed for event ID: {event.get('eventId')}")
-                    
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
-                    self.producer.abort_transaction()
-                    
         except KeyboardInterrupt:
-            logger.info("Connector shutting down...")
-        except Exception as e:
-            logger.error(f"Fatal error: {e}")
+            logger.info("Connector interrupted")
         finally:
-            self.cleanup()
-
-    def stop(self):
-        self.running = False
-
-    def cleanup(self):
-        if self.consumer:
             self.consumer.close()
-        logger.info("Connector shutdown complete")
+            logger.info("Connector closed")
+
+def main():
+    """Main entry point"""
+    try:
+        logger.info("Starting Kafka connector...")
+        connector = KafkaConnector()
+        connector.process_messages()
+    except Exception as e:
+        logger.error(f"Failed to start connector: {e}")
+        raise
 
 if __name__ == "__main__":
-    logger.info("Starting Kafka connector...")
-    connector = KafkaConnector()
-    connector.start()
+    main()
