@@ -1,10 +1,22 @@
 {
+  "namespace": "com.example",
   "type": "record",
   "name": "Event",
-  "namespace": "com.example.kafka",
   "fields": [
-    { "name": "eventId", "type": "string" },
-    { "name": "timestamp", "type": "long" },
-    { "name": "payload", "type": "string" }
+    {"name": "eventId", "type": "string"},
+    {"name": "eventType", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+    {
+      "name": "payload", 
+      "type": {
+        "type": "record",
+        "name": "Payload",
+        "fields": [
+          {"name": "messageNumber", "type": "int"},
+          {"name": "testRunId", "type": "string"},
+          {"name": "content", "type": "string"}
+        ]
+      }
+    }
   ]
 }

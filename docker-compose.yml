@@ -2,29 +2,30 @@ version: '3.8'
 
 services:
   source-kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.3.0
     hostname: source-kafka
     container_name: source-kafka
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: source-zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://source-kafka:9092,SSL://source-kafka:9093
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,SSL://0.0.0.0:9093
-      KAFKA_SSL_KEYSTORE_FILENAME: source.keystore.jks
-      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
-      KAFKA_SSL_KEY_CREDENTIALS: key_creds
-      KAFKA_SSL_TRUSTSTORE_FILENAME: source.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
-      KAFKA_SSL_CLIENT_AUTH: required
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://source-kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - ./test:/test
+      - ./backend/avro:/avro
+      - ./secrets/source:/etc/kafka/secrets
     ports:
       - "9092:9092"
       - "9093:9093"
-    volumes:
-      - ./backend/avro:/avro
-      - ./secrets/source:/etc/kafka/secrets
     networks:
       - network1
+      - network2
 
   source-zookeeper:
     image: confluentinc/cp-zookeeper:latest
@@ -39,29 +40,30 @@ services:
       - network1
 
   target-kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.3.0
     hostname: target-kafka
     container_name: target-kafka
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_ZOOKEEPER_CONNECT: target-zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://target-kafka:9094,SSL://target-kafka:9095
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,SSL://0.0.0.0:9095
-      KAFKA_SSL_KEYSTORE_FILENAME: target.keystore.jks
-      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
-      KAFKA_SSL_KEY_CREDENTIALS: key_creds
-      KAFKA_SSL_TRUSTSTORE_FILENAME: target.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
-      KAFKA_SSL_CLIENT_AUTH: required
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://target-kafka:9094
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - ./test:/test
+      - ./backend/avro:/avro
+      - ./secrets/target:/etc/kafka/secrets
     ports:
       - "9094:9094"
       - "9095:9095"
-    volumes:
-      - ./backend/avro:/avro
-      - ./secrets/target:/etc/kafka/secrets
     networks:
       - network3
+      - network2
 
   target-zookeeper:
     image: confluentinc/cp-zookeeper:latest
@@ -76,29 +78,65 @@ services:
       - network3
 
   connector:
-    build: ./backend/connector
+    build:
+      context: ./backend/connector
     container_name: connector
+    environment:
+      - SOURCE_BOOTSTRAP_SERVER=source-kafka:9092
+      - TARGET_BOOTSTRAP_SERVER=target-kafka:9094
+    volumes:
+      - ./backend:/app/backend
+      - ./backend/avro:/avro
+    env_file:
+      - .env.local
     depends_on:
       - source-kafka
       - target-kafka
+    networks:
+      - network2
+
+  source-test:
+    build:
+      context: ./test
+      dockerfile: Dockerfile.test
+    container_name: source-test
+    command: ["sleep", "infinity"]
+    environment:
+      - BOOTSTRAP_SERVER=source-kafka:9092
+      - TOPIC=source-topic
     volumes:
-      - ./backend/connector:/app
-      - ./backend/avro:/avro
+      - ./backend/avro:/app/avro
+      - ./test:/app/test
     networks:
       - network1
-      - network2
+
+  target-test:
+    build:
+      context: ./test
+      dockerfile: Dockerfile.test
+    container_name: target-test
+    command: ["sleep", "infinity"]
+    environment:
+      - BOOTSTRAP_SERVER=target-kafka:9094
+      - TOPIC=target-topic
+    volumes:
+      - ./backend/avro:/app/avro
+      - ./test:/app/test
+    networks:
       - network3
-    env_file:
-      - .env.local
 
   kafka-ui:
-    image: confluentinc/cp-enterprise-control-center:latest
+    image: confluentinc/cp-enterprise-control-center:7.3.0
     container_name: kafka-ui
     environment:
       CONTROL_CENTER_BOOTSTRAP_SERVERS: source-kafka:9092,target-kafka:9094
       CONTROL_CENTER_KAFKA_SOURCE_CLUSTER_BOOTSTRAP_SERVERS: source-kafka:9092
       CONTROL_CENTER_KAFKA_TARGET_CLUSTER_BOOTSTRAP_SERVERS: target-kafka:9094
       CONTROL_CENTER_ZOOKEEPER_CONNECT: source-zookeeper:2181,target-zookeeper:2181
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONTROL_CENTER_CONNECT_CLUSTER_REPLICATION_FACTOR: 1
     ports:
       - "9021:9021"
     networks:
@@ -116,12 +154,14 @@ services:
     ports:
       - "443:443"
     networks:
-      - network3
+      - network2
 
 networks:
   network1:
     driver: bridge
+    internal: true
   network2:
     driver: bridge
   network3:
     driver: bridge
+    internal: true

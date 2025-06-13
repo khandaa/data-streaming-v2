@@ -13,34 +13,36 @@ fi
 
 # Test 1: Simulate network outage between connector and source Kafka
 echo "Test 1: Simulating network outage between connector and source Kafka"
-docker-compose exec connector bash -c "echo 'Disconnecting from source Kafka...'"
-docker network disconnect data-streaming-2_network1 connector
-echo "Connector disconnected from source Kafka network"
+docker-compose exec connector bash -c "echo 'Simulating source Kafka disconnection...'"
+# In new topology, we disconnect source-kafka from network2 to simulate outage
+docker network disconnect data-streaming-2_network2 source-kafka
+echo "Source Kafka disconnected from bridge network"
 
 # Wait for a bit
 sleep 20
 
 # Reconnect
-echo "Reconnecting connector to source Kafka"
-docker network connect data-streaming-2_network1 connector
-echo "Connector reconnected to source Kafka network"
+echo "Reconnecting source Kafka to bridge network"
+docker network connect data-streaming-2_network2 source-kafka
+echo "Source Kafka reconnected to bridge network"
 
 # Wait for recovery
 sleep 20
 
 # Test 2: Simulate network outage between connector and target Kafka
 echo "Test 2: Simulating network outage between connector and target Kafka"
-docker-compose exec connector bash -c "echo 'Disconnecting from target Kafka...'"
-docker network disconnect data-streaming-2_network3 connector
-echo "Connector disconnected from target Kafka network"
+docker-compose exec connector bash -c "echo 'Simulating target Kafka disconnection...'"
+# In new topology, we disconnect target-kafka from network2 to simulate outage
+docker network disconnect data-streaming-2_network2 target-kafka
+echo "Target Kafka disconnected from bridge network"
 
 # Wait for a bit
 sleep 20
 
 # Reconnect
-echo "Reconnecting connector to target Kafka"
-docker network connect data-streaming-2_network3 connector
-echo "Connector reconnected to target Kafka network"
+echo "Reconnecting target Kafka to bridge network"
+docker network connect data-streaming-2_network2 target-kafka
+echo "Target Kafka reconnected to bridge network"
 
 # Wait for recovery
 sleep 20
