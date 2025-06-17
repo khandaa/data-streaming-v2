@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mermaid Diagram Preview</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            securityLevel: 'loose'
+        });
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .diagram-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 20px auto;
+            max-width: 90%;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Secure Kafka Connector Architecture</h1>
+    <div class="diagram-container">
+        <div class="mermaid">
+graph TD
+    %% Define all components
+    %% Network 1 - Source Components
+    SZK["Source Zookeeper\n(network1)"] 
+    SKFK["Source Kafka\n(network1)"]
+    SPROD["Source Producer\n(network1)"]
+    
+    %% Network 2 - Bridge Components
+    CONN["Connector\n(networks 1,2,3)"]
+    KUI["Kafka UI\n(network2)"]
+    
+    %% Network 3 - Target Components
+    TZK["Target Zookeeper\n(network3)"]
+    TKFK["Target Kafka\n(network3)"]
+    TCONS["Target Consumer\n(network3)"]
+    RPROXY["Reverse Proxy\n(network3)"]
+    
+    %% External User
+    USER["External User\n(HTTPS)"]
+    
+    %% Network 1 connections
+    SZK -->|"Port 2181"| SKFK
+    SPROD -->|"SSL - Port 9092"| SKFK
+    
+    %% Connector connections to network 1
+    SKFK -->|"SSL - Port 9092\nConsumes messages"| CONN
+    
+    %% Network 3 connections
+    TZK -->|"Port 2181"| TKFK
+    CONN -->|"SSL - Port 9094\nProduces messages"| TKFK
+    TKFK -->|"SSL - Port 9094\nConsumes messages"| TCONS
+    KUI -.->|"HTTP"| RPROXY
+    RPROXY -->|"HTTPS - Port 443"| USER
+        </div>
+    </div>
+</body>
+</html>
