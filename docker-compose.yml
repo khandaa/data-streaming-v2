@@ -25,7 +25,6 @@ services:
       - "9093:9093"
     networks:
       - network1
-      - network2
 
   source-zookeeper:
     image: confluentinc/cp-zookeeper:latest
@@ -63,7 +62,6 @@ services:
       - "9095:9095"
     networks:
       - network3
-      - network2
 
   target-zookeeper:
     image: confluentinc/cp-zookeeper:latest
@@ -93,7 +91,9 @@ services:
       - source-kafka
       - target-kafka
     networks:
+      - network1
       - network2
+      - network3
 
   source-test:
     build:

@@ -46,28 +46,28 @@ The system implements a multi-network architecture with three distinct Docker ne
 The network bridge is primarily implemented through the **Connector** component, which is the only component with access to all three networks. This isolation pattern is implemented in the Docker Compose configuration:
 
 ```yaml
-# Source Kafka - Connected to network1 and network2
+# Source Kafka - Connected only to network1
 source-kafka:
   # configuration...
   networks:
     - network1
-    - network2
 
-# Target Kafka - Connected to network3 and network2
+# Target Kafka - Connected only to network3
 target-kafka:
   # configuration...
   networks:
     - network3
-    - network2
 
-# Connector - Connected to network1, network2, and network3 via connections to both Kafka brokers
+# Connector - Connected to all three networks to act as a bridge
 connector:
   # configuration...
   environment:
     - SOURCE_BOOTSTRAP_SERVER=source-kafka:9092
     - TARGET_BOOTSTRAP_SERVER=target-kafka:9094
   networks:
-    - network2  # This gives the connector access to both Kafka brokers
+    - network1
+    - network2
+    - network3
 
 # Network definitions
 networks:
@@ -83,42 +83,48 @@ networks:
 
 This configuration creates a controlled bridge where:
 
-1. The connector (in network2) can communicate with source-kafka which spans network1 and network2
-2. The connector can also communicate with target-kafka which spans network3 and network2
-3. Direct communication between network1 and network3 is prevented
-4. The connector becomes the only path for data to flow between network1 and network3
+1. Network1, network2, and network3 are completely independent of each other
+2. The connector is explicitly connected to all three networks
+3. Direct communication between network1 and network3 is impossible
+4. Network2 contains monitoring components but cannot directly access Kafka brokers
+5. The connector becomes the only path for data to flow between all networks
 
 ## Component Details
 
 ### Source Environment (network1)
 - **source-zookeeper**: Manages the source Kafka cluster configuration
 - **source-kafka**: Broker that receives messages from producers
-  - Connected to network1 and network2
+  - Connected only to network1
   - SSL/TLS configured for secure communications
 - **source-test**: Generates test messages with Avro serialization
 
 ### Bridge/Monitoring Environment (network2)
-- **kafka-ui**: Confluent Control Center for monitoring both Kafka clusters
-- **connector**: The critical bridging component that connects all networks
-  - Reads from source-kafka:9092 (network1/network2)
-  - Writes to target-kafka:9094 (network2/network3)
+- **kafka-ui**: Confluent Control Center for monitoring Kafka clusters
 - **reverse-proxy**: NGINX proxy providing secure access to the UI
 
 ### Target Environment (network3)
 - **target-zookeeper**: Manages the target Kafka cluster configuration
 - **target-kafka**: Broker that receives messages from the connector
-  - Connected to network3 and network2
+  - Connected only to network3
   - SSL/TLS configured for secure communications
 - **target-test**: Consumes and processes messages from target Kafka
+
+### Cross-Network Component
+- **connector**: The critical bridging component that connects all networks
+  - Connected to all three networks (network1, network2, and network3)
+  - Reads directly from source-kafka:9092 in network1
+  - Communicates monitoring data to kafka-ui in network2
+  - Writes directly to target-kafka:9094 in network3
 
 ## Network Bridge Technical Implementation
 
 The connector component implements the network bridge functionality through the following mechanisms:
 
 1. **Multi-Network Access**:
-   - The connector component has indirect access to all three networks through the Kafka brokers
-   - It communicates with source-kafka which spans network1 and network2
-   - It communicates with target-kafka which spans network3 and network2
+   - The connector component has direct access to all three networks
+   - It explicitly connects to network1, network2, and network3
+   - It communicates directly with source-kafka in network1
+   - It communicates directly with target-kafka in network3
 
 2. **Connector Implementation**:
    ```python
@@ -252,7 +258,6 @@ flowchart TD
     end
     
     subgraph network2[Network 2 - Bridge Network]
-        CN[Connector]
         KU[Kafka UI]
         RP[Reverse Proxy]
     end
@@ -262,6 +267,9 @@ flowchart TD
         TK[Target Kafka]
         TC[Target Test]
     end
+    
+    %% Connector spanning all networks
+    CN[Connector] 
     
     %% Data flow connections
     ST -->|"1. Produce SSL"| SK
@@ -273,8 +281,7 @@ flowchart TD
     TK <-->|"6. Poll/Consume"| TC
     
     %% UI monitoring connections
-    SK -.->|"Metrics"| KU
-    TK -.->|"Metrics"| KU
+    CN -.->|"Metrics"| KU
     KU -.->|"HTTPS"| RP
     
     %% Network Isolation Notes
@@ -293,7 +300,7 @@ flowchart TD
         N1[Network 1: Internal isolation]
         N2[Network 2: Bridge network]
         N3[Network 3: Internal isolation]
-        BR[Connector: Bridging component]
+        BR[Connector: Spans all networks]
     end
     
     class N1 sourceStyle
@@ -310,14 +317,16 @@ The network bridge implementation relies on several key design patterns:
    - Each functional area is isolated in its own network
    - External access is disabled for network1 and network3 using `internal: true`
 
-2. **Shared Services Pattern**
-   - Kafka brokers span multiple networks to allow controlled communication
-   - source-kafka spans network1 and network2
-   - target-kafka spans network2 and network3
+2. **Direct Network Access Pattern**
+   - Each network is fully isolated from the others
+   - Kafka brokers are contained entirely within their respective networks
+   - source-kafka exists only in network1
+   - target-kafka exists only in network3
 
 3. **Bridge Node Pattern**
    - The connector acts as a controlled bridge between isolated networks
-   - It operates in network2 but communicates with components in network1 and network3
+   - It exists simultaneously in all three networks (network1, network2, and network3)
+   - It's the only component with access to multiple networks
 
 4. **Security-by-Design**
    - SSL/TLS encryption on all Kafka connections

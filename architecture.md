@@ -13,14 +13,16 @@ graph TD
     SPROD["Source Producer\n(network1)"]
     
     %% Network 2 - Bridge Components
-    CONN["Connector\n(networks 1,2,3)"]
     KUI["Kafka UI\n(network2)"]
+    RPROXY["Reverse Proxy\n(network2)"]
     
     %% Network 3 - Target Components
     TZK["Target Zookeeper\n(network3)"]
     TKFK["Target Kafka\n(network3)"]
     TCONS["Target Consumer\n(network3)"]
-    RPROXY["Reverse Proxy\n(network3)"]
+    
+    %% Connector with access to all networks
+    CONN["Connector\n(networks 1,2,3)"]
     
     %% External User
     USER["External User\n(HTTPS)"]
@@ -36,12 +38,11 @@ graph TD
     TZK -->|"Port 2181"| TKFK
     CONN -->|"SSL - Port 9094\nProduces messages"| TKFK
     TKFK -->|"SSL - Port 9094\nConsumes messages"| TCONS
-    KUI -.->|"HTTP"| RPROXY
-    RPROXY -->|"HTTPS - Port 443"| USER
     
-    %% UI connections
-    SKFK -.->|"JMX Metrics"| KUI
-    TKFK -.->|"JMX Metrics"| KUI
+    %% Network 2 connections
+    RPROXY -->|"HTTPS - Port 443"| USER
+    CONN -->|"Metrics"| KUI
+    KUI -->|"HTTP"| RPROXY
     
     %% Network boundaries
     subgraph NETWORK1["Network 1 - Source Environment"]
@@ -50,15 +51,15 @@ graph TD
         SPROD
     end
     
-    subgraph NETWORK2["Network 2 - Monitoring"]
+    subgraph NETWORK2["Network 2 - Monitoring/Bridge"]
         KUI
+        RPROXY
     end
     
     subgraph NETWORK3["Network 3 - Target Environment"]
         TZK
         TKFK
         TCONS
-        RPROXY
     end
     
     %% Connector spans multiple networks
@@ -92,24 +93,25 @@ graph TD
 * **Source Kafka**: Broker that receives messages from producers
 * **Source Producer**: Generates test messages with Avro serialization
 
-### Network 2 (Monitoring Environment)
+### Network 2 (Monitoring/Bridge Environment)
 
 * **Kafka UI**: Monitoring interface for both Kafka clusters
+* **Reverse Proxy**: Provides secure HTTPS access to the Kafka UI
 
 ### Network 3 (Target Environment)
 
 * **Target Zookeeper**: Manages the target Kafka cluster configuration
 * **Target Kafka**: Broker that receives messages from the connector
 * **Target Consumer**: Receives and processes messages from target Kafka
-* **Reverse Proxy**: Provides secure HTTPS access to the Kafka UI
 
 ### Cross-Network Component
 
 * **Connector**: The only component with access to all three networks
   * Reads messages from Source Kafka (Network 1)
-  * Can communicate with Kafka UI (Network 2)
+  * Provides metrics to Kafka UI (Network 2)
   * Writes messages to Target Kafka (Network 3)
   * Implements exactly-once semantics with transactional delivery
+  * Acts as the sole bridge between the three isolated networks
 
 ## Security Features
 
